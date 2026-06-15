@@ -30,7 +30,7 @@ struct GoalBoardView: View {
                     )
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 8) {
+                        LazyVStack(spacing: 0) {
                             GoalSiblingRows(
                                 goals: store.orderedGoals(planListId: plan.id, parentId: nil),
                                 planListId: plan.id,
@@ -41,7 +41,8 @@ struct GoalBoardView: View {
                                 onDelete: { deletingGoal = $0 }
                             )
                         }
-                        .padding(20)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                     .background(Color(nsColor: .textBackgroundColor))
                 }

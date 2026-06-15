@@ -14,18 +14,9 @@ struct GoalRowView: View {
     private var isExpanded: Bool { expandedGoalIds.contains(goal.id) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
-                Button {
-                    toggleExpansion()
-                } label: {
-                    Image(systemName: hasChildren ? "chevron.right" : "circle.fill")
-                        .font(hasChildren ? .caption.weight(.semibold) : .system(size: 4))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 22)
-                }
-                .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 7) {
+                expandControl
 
                 Button {
                     store.setCompleted(goal, isCompleted: !goal.isCompleted)
@@ -37,39 +28,29 @@ struct GoalRowView: View {
                 }
                 .buttonStyle(.plain)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(goal.title)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(goal.isCompleted ? .secondary : .primary)
-                            .strikethrough(goal.isCompleted, color: .secondary)
-                            .lineLimit(2)
+                Text(goal.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(goal.isCompleted ? .secondary : .primary)
+                    .strikethrough(goal.isCompleted, color: .secondary)
+                    .lineLimit(1)
 
-                        if goal.isUrgent {
-                            Label("加急", systemImage: "flag.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.orange.opacity(0.9))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Color.orange.opacity(0.12), in: Capsule())
-                        }
-                    }
+                Spacer(minLength: 10)
 
-                    if !goal.note.isEmpty {
-                        Text(goal.note)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-
-                    if let completedAt = goal.completedAt {
-                        Text("完成于 \(completedAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                if let completedAt = goal.completedAt, goal.isCompleted {
+                    Text(completionText(for: completedAt))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
-                Spacer(minLength: 12)
+                if goal.isUrgent {
+                    Label("加急", systemImage: "flag.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.orange.opacity(0.9))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.orange.opacity(0.12), in: Capsule())
+                }
 
                 Button {
                     store.toggleUrgent(goal)
@@ -82,17 +63,18 @@ struct GoalRowView: View {
 
                 childGoalMenu
             }
-            .padding(12)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
             .background(rowBackground)
             .overlay(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(goal.isUrgent ? Color.orange.opacity(0.55) : Color.clear)
                     .frame(width: 3)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 3)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .opacity(goal.isCompleted ? 0.62 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .onTapGesture {
                 selectedGoalId = goal.id
             }
@@ -113,6 +95,7 @@ struct GoalRowView: View {
                     onDelete(goal)
                 }
             }
+            .padding(.leading, rowIndent)
 
             if isExpanded {
                 GoalSiblingRows(
@@ -126,7 +109,29 @@ struct GoalRowView: View {
                 )
             }
         }
-        .padding(.leading, CGFloat(levelDepth) * 24)
+    }
+
+    @ViewBuilder
+    private var expandControl: some View {
+        if hasChildren {
+            Button {
+                toggleExpansion()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.medium))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12, height: 18)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Spacer()
+                .frame(width: 12, height: 18)
+        }
+    }
+
+    private var rowIndent: CGFloat {
+        CGFloat(levelDepth) * 18
     }
 
     @ViewBuilder
@@ -159,12 +164,29 @@ struct GoalRowView: View {
 
     private var rowBackground: AnyShapeStyle {
         if isSelected {
-            return AnyShapeStyle(Color.accentColor.opacity(0.12))
+            return AnyShapeStyle(Color.accentColor.opacity(0.10))
         }
         if goal.isUrgent {
-            return AnyShapeStyle(Color.orange.opacity(0.06))
+            return AnyShapeStyle(Color.orange.opacity(0.045))
         }
-        return AnyShapeStyle(Color(nsColor: .controlBackgroundColor))
+        return AnyShapeStyle(Color.clear)
+    }
+
+    private func completionText(for date: Date) -> String {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.month, .day, .hour, .minute], from: date)
+        let hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        if calendar.isDateInToday(date) {
+            return String(format: "已完成 %02d:%02d", hour, minute)
+        }
+        return String(
+            format: "%02d-%02d %02d:%02d",
+            components.month ?? 1,
+            components.day ?? 1,
+            hour,
+            minute
+        )
     }
 
     private func toggleExpansion() {
@@ -198,12 +220,12 @@ struct GoalSiblingRows: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 7) {
             ForEach(sections) { section in
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 1) {
                     periodHeader(for: section)
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         ForEach(section.goals) { goal in
                             GoalRowView(
                                 goal: goal,
@@ -219,14 +241,31 @@ struct GoalSiblingRows: View {
                 }
             }
         }
+        .overlay(alignment: .leading) {
+            if levelDepth > 0 && !goals.isEmpty {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.16))
+                    .frame(width: 1)
+                    .padding(.leading, guideIndent)
+                    .padding(.vertical, 8)
+            }
+        }
     }
 
     private func periodHeader(for section: GoalPeriodSection) -> some View {
         Label(section.displayName, systemImage: section.systemImage)
-            .font(.caption.weight(.semibold))
+            .font(.caption.weight(.medium))
             .foregroundStyle(.secondary)
-            .padding(.leading, CGFloat(levelDepth) * 24 + 42)
-            .padding(.top, levelDepth == 0 ? 2 : 4)
+            .padding(.leading, headerIndent)
+            .padding(.top, levelDepth == 0 ? 1 : 2)
+    }
+
+    private var headerIndent: CGFloat {
+        CGFloat(levelDepth) * 18 + 48
+    }
+
+    private var guideIndent: CGFloat {
+        CGFloat(levelDepth) * 18 + 12
     }
 }
 
