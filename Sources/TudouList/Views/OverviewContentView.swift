@@ -33,17 +33,13 @@ struct OverviewContentView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        if kind == .all {
-                            allGoalsContent
-                        } else {
-                            ForEach(goals) { goal in
-                                OverviewGoalRowView(
-                                    goal: goal,
-                                    isSelected: selectedGoalId == goal.id,
-                                    store: store
-                                ) {
-                                    selectedGoalId = goal.id
-                                }
+                        ForEach(goals) { goal in
+                            OverviewGoalRowView(
+                                goal: goal,
+                                isSelected: selectedGoalId == goal.id,
+                                store: store
+                            ) {
+                                selectedGoalId = goal.id
                             }
                         }
                     }
@@ -94,30 +90,4 @@ struct OverviewContentView: View {
         .background(.regularMaterial)
     }
 
-    @ViewBuilder
-    private var allGoalsContent: some View {
-        ForEach(store.planLists) { plan in
-            let planGoals = goals.filter { $0.planListId == plan.id }
-            if !planGoals.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(plan.name, systemImage: "rectangle.stack")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 4)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(planGoals) { goal in
-                            OverviewGoalRowView(
-                                goal: goal,
-                                isSelected: selectedGoalId == goal.id,
-                                store: store
-                            ) {
-                                selectedGoalId = goal.id
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

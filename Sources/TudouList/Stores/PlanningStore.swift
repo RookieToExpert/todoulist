@@ -141,16 +141,15 @@ final class PlanningStore: ObservableObject {
         return goals.first { $0.id == id }
     }
 
+    func sortedGoals(_ goals: [Goal]) -> [Goal] {
+        goals.sorted(by: goalDisplaySort)
+    }
+
     // TODO: Add same-level drag reordering by updating sortOrder values from a drop delegate.
     func orderedGoals(planListId: UUID, parentId: UUID?) -> [Goal] {
-        goals
-            .filter { $0.planListId == planListId && $0.parentId == parentId }
-            .sorted { lhs, rhs in
-                if lhs.isUrgent != rhs.isUrgent { return lhs.isUrgent && !rhs.isUrgent }
-                if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted && rhs.isCompleted }
-                if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
-                return lhs.createdAt < rhs.createdAt
-            }
+        sortedGoals(
+            goals.filter { $0.planListId == planListId && $0.parentId == parentId }
+        )
     }
 
     func hasChildren(_ goal: Goal) -> Bool {
@@ -172,40 +171,19 @@ final class PlanningStore: ObservableObject {
             return urgentGoals + Array(recentGoals)
         case .thisWeek:
             let weekGoalIds = Set(goals.filter { $0.level == .week }.map(\.id))
-            return goals
-                .filter { goal in
+            return sortedGoals(
+                goals.filter { goal in
                     goal.level == .week || goal.parentId.map { weekGoalIds.contains($0) } == true
                 }
-                .sorted(by: overviewCompletionThenRecentSort)
+            )
         case .urgent:
-            return goals
-                .filter(\.isUrgent)
-                .sorted(by: overviewCompletionThenRecentSort)
+            return sortedGoals(goals.filter(\.isUrgent))
         case .all:
-            return goals.sorted { lhs, rhs in
-                let lhsPlanIndex = planIndex(for: lhs.planListId)
-                let rhsPlanIndex = planIndex(for: rhs.planListId)
-                if lhsPlanIndex != rhsPlanIndex { return lhsPlanIndex < rhsPlanIndex }
-                if lhs.isUrgent != rhs.isUrgent { return lhs.isUrgent && !rhs.isUrgent }
-                if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted && rhs.isCompleted }
-                if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
-                return lhs.createdAt < rhs.createdAt
-            }
+            return sortedGoals(goals)
         case .completed:
             return goals
                 .filter(\.isCompleted)
-                .sorted { lhs, rhs in
-                    switch (lhs.completedAt, rhs.completedAt) {
-                    case let (lhsDate?, rhsDate?):
-                        return lhsDate > rhsDate
-                    case (.some, .none):
-                        return true
-                    case (.none, .some):
-                        return false
-                    case (.none, .none):
-                        return lhs.updatedAt > rhs.updatedAt
-                    }
-                }
+                .sorted(by: completedOverviewSort)
         }
     }
 
@@ -239,19 +217,32 @@ final class PlanningStore: ObservableObject {
         return ([planName] + path).joined(separator: " / ")
     }
 
-    private func planIndex(for planListId: UUID) -> Int {
-        planLists.firstIndex { $0.id == planListId } ?? Int.max
+    private func goalDisplaySort(_ lhs: Goal, _ rhs: Goal) -> Bool {
+        if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted && rhs.isCompleted }
+        if lhs.isUrgent != rhs.isUrgent { return lhs.isUrgent && !rhs.isUrgent }
+        if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
+        return lhs.createdAt < rhs.createdAt
     }
 
     private func overviewRecentSort(_ lhs: Goal, _ rhs: Goal) -> Bool {
+        if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted && rhs.isCompleted }
+        if lhs.isUrgent != rhs.isUrgent { return lhs.isUrgent && !rhs.isUrgent }
         if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
         return lhs.createdAt > rhs.createdAt
     }
 
-    private func overviewCompletionThenRecentSort(_ lhs: Goal, _ rhs: Goal) -> Bool {
-        if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted && rhs.isCompleted }
-        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-        return lhs.createdAt > rhs.createdAt
+    private func completedOverviewSort(_ lhs: Goal, _ rhs: Goal) -> Bool {
+        switch (lhs.completedAt, rhs.completedAt) {
+        case let (lhsDate?, rhsDate?):
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            break
+        }
+        return lhs.updatedAt > rhs.updatedAt
     }
 
     private func completeGoalAndDescendants(_ goalId: UUID, completedAt: Date) {
