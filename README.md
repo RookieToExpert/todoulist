@@ -2,13 +2,9 @@
 
 TudouList 是一个 macOS 原生 SwiftUI 计划表 / Todo / Goal Planning 应用。它面向层级化目标管理，支持从「计划表」拆解到「年目标 -> 月目标 -> 周目标 -> 日目标」，并提供跨计划表的总览视图。
 
-## 如何运行
+![alt text](image.png)
 
-```bash
-swift run TudouList
-```
-
-也可以用 Xcode 打开 Swift Package 后运行 `TudouList` target。
+![alt text](image-1.png)
 
 ## 已实现功能
 
