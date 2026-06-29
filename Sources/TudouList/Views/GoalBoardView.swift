@@ -17,6 +17,11 @@ struct GoalBoardView: View {
         store.goal(id: selectedGoalId)
     }
 
+    private var selectedGoalCreationOptions: [GoalCreationOption] {
+        guard let selectedGoal else { return [] }
+        return store.childCreationOptions(for: selectedGoal)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let plan {
@@ -25,8 +30,8 @@ struct GoalBoardView: View {
                 if planGoals.isEmpty {
                     EmptyStateView(
                         systemImage: "target",
-                        title: "从一个年目标开始",
-                        message: "建立计划表的第一层目标，再逐步拆到月、周、日。"
+                        title: "从一个长期目标开始",
+                        message: "先建立长期目标，再逐步拆到阶段目标、本周行动和今日必须。"
                     )
                 } else {
                     ScrollView {
@@ -59,16 +64,21 @@ struct GoalBoardView: View {
                 Button {
                     addYearGoal()
                 } label: {
-                    Label("新增年目标", systemImage: "plus.circle")
+                    Label("新增长期目标", systemImage: "plus.circle")
                 }
                 .disabled(plan == nil)
 
-                Button {
-                    addChildGoal()
+                Menu {
+                    ForEach(selectedGoalCreationOptions) { option in
+                        Button(option.title) {
+                            addChildGoal(option: option)
+                        }
+                        .disabled(!option.isEnabled)
+                    }
                 } label: {
-                    Label("新增下一级", systemImage: "arrow.down.right.circle")
+                    Label(childCreationMenuTitle, systemImage: "arrow.down.right.circle")
                 }
-                .disabled(selectedGoal.map { store.allowedChildLevels(for: $0).isEmpty } ?? true)
+                .disabled(selectedGoalCreationOptions.isEmpty)
             }
         }
         .confirmationDialog(
@@ -111,7 +121,7 @@ struct GoalBoardView: View {
             Button {
                 addYearGoal()
             } label: {
-                Label("年目标", systemImage: "plus")
+                Label("长期目标", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
@@ -123,15 +133,42 @@ struct GoalBoardView: View {
 
     private func addYearGoal() {
         guard let plan else { return }
-        if let goal = store.createGoal(planListId: plan.id, parent: nil, level: .year) {
+        if let goal = store.createGoal(
+            planListId: plan.id,
+            parent: nil,
+            level: .year,
+            kind: .objective,
+            actionScope: ActionScope.none
+        ) {
             selectedGoalId = goal.id
             expandedGoalIds.insert(goal.id)
         }
     }
 
-    private func addChildGoal() {
+    private var childCreationMenuTitle: String {
+        guard let selectedGoal else { return "新增下一级" }
+        switch selectedGoal.level {
+        case .year:
+            return "添加阶段目标"
+        case .month:
+            return "添加行动"
+        case .week:
+            return "添加子任务"
+        case .day:
+            return "新增下一级"
+        }
+    }
+
+    private func addChildGoal(option: GoalCreationOption) {
+        guard let level = option.level else { return }
         guard let plan, let selectedGoal else { return }
-        if let goal = store.createGoal(planListId: plan.id, parent: selectedGoal) {
+        if let goal = store.createGoal(
+            planListId: plan.id,
+            parent: selectedGoal,
+            level: level,
+            kind: option.kind,
+            actionScope: option.actionScope
+        ) {
             selectedGoalId = goal.id
             expandedGoalIds.insert(selectedGoal.id)
         }

@@ -19,10 +19,10 @@ enum GoalLevel: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .year: "年目标"
-        case .month: "月目标"
-        case .week: "周目标"
-        case .day: "日目标"
+        case .year: "长期目标"
+        case .month: "阶段目标"
+        case .week: "本周行动"
+        case .day: "今日必须"
         }
     }
 

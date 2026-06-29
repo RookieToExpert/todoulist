@@ -72,6 +72,22 @@ private struct GoalEditor: View {
                 }
             }
 
+            Section("计划") {
+                Toggle("设置截止时间", isOn: dueDateEnabledBinding)
+
+                if goal?.dueDate != nil {
+                    DatePicker(
+                        "截止时间",
+                        selection: dueDateBinding,
+                        displayedComponents: [.date]
+                    )
+
+                    Button("清除截止时间", role: .destructive) {
+                        store.updateDueDate(id: goalID, dueDate: nil, flush: true)
+                    }
+                }
+            }
+
             Section("元信息") {
                 if let goal {
                     LabeledContent("创建时间") {
@@ -103,6 +119,26 @@ private struct GoalEditor: View {
         Binding(
             get: { goal?.note ?? "" },
             set: { store.updateGoal(id: goalID, note: $0) }
+        )
+    }
+
+    private var dueDateEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { goal?.dueDate != nil },
+            set: { isEnabled in
+                if isEnabled {
+                    store.updateDueDate(id: goalID, dueDate: goal?.dueDate ?? .now, flush: true)
+                } else {
+                    store.updateDueDate(id: goalID, dueDate: nil, flush: true)
+                }
+            }
+        )
+    }
+
+    private var dueDateBinding: Binding<Date> {
+        Binding(
+            get: { goal?.dueDate ?? .now },
+            set: { store.updateDueDate(id: goalID, dueDate: $0) }
         )
     }
 }

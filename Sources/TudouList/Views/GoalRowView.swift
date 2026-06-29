@@ -12,6 +12,24 @@ struct GoalRowView: View {
     private var isSelected: Bool { selectedGoalId == goal.id }
     private var hasChildren: Bool { store.hasChildren(goal) }
     private var isExpanded: Bool { expandedGoalIds.contains(goal.id) }
+    private var directChildren: [Goal] {
+        store.orderedGoals(planListId: planListId, parentId: goal.id)
+    }
+    private var creationOptions: [GoalCreationOption] {
+        store.childCreationOptions(for: goal)
+    }
+    private var canMoveToToday: Bool {
+        goal.effectiveKind == .action &&
+        !goal.isCompleted &&
+        !goal.isLegacyWeekContainer &&
+        (goal.effectiveActionScope == .thisWeek || goal.effectiveActionScope == .later)
+    }
+    private var canMoveToLater: Bool {
+        goal.effectiveKind == .action &&
+        !goal.isCompleted &&
+        !goal.isLegacyWeekContainer &&
+        goal.effectiveActionScope == .today
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -85,10 +103,21 @@ struct GoalRowView: View {
                 Button(goal.isUrgent ? "取消加急" : "设为加急") {
                     store.toggleUrgent(goal)
                 }
-                ForEach(store.allowedChildLevels(for: goal)) { childLevel in
-                    Button("新增\(childLevel.displayName)") {
-                        addChildGoal(level: childLevel)
+                if canMoveToToday {
+                    Button("移动到今日必须") {
+                        store.updateActionScope(id: goal.id, actionScope: .today)
                     }
+                }
+                if canMoveToLater {
+                    Button("移回待分配") {
+                        store.updateActionScope(id: goal.id, actionScope: .later)
+                    }
+                }
+                ForEach(creationOptions) { option in
+                    Button(option.title) {
+                        addChildGoal(option: option)
+                    }
+                    .disabled(!option.isEnabled)
                 }
                 Divider()
                 Button("删除", role: .destructive) {
@@ -98,15 +127,27 @@ struct GoalRowView: View {
             .padding(.leading, rowIndent)
 
             if isExpanded {
-                GoalSiblingRows(
-                    goals: store.orderedGoals(planListId: planListId, parentId: goal.id),
-                    planListId: planListId,
-                    levelDepth: levelDepth + 1,
-                    selectedGoalId: $selectedGoalId,
-                    expandedGoalIds: $expandedGoalIds,
-                    store: store,
-                    onDelete: onDelete
-                )
+                if goal.level == .month {
+                    MonthGoalSections(
+                        goals: directChildren,
+                        planListId: planListId,
+                        levelDepth: levelDepth + 1,
+                        selectedGoalId: $selectedGoalId,
+                        expandedGoalIds: $expandedGoalIds,
+                        store: store,
+                        onDelete: onDelete
+                    )
+                } else {
+                    GoalSiblingRows(
+                        goals: directChildren,
+                        planListId: planListId,
+                        levelDepth: levelDepth + 1,
+                        selectedGoalId: $selectedGoalId,
+                        expandedGoalIds: $expandedGoalIds,
+                        store: store,
+                        onDelete: onDelete
+                    )
+                }
             }
         }
     }
@@ -136,8 +177,7 @@ struct GoalRowView: View {
 
     @ViewBuilder
     private var childGoalMenu: some View {
-        let childLevels = store.allowedChildLevels(for: goal)
-        if childLevels.isEmpty {
+        if creationOptions.isEmpty {
             Button {} label: {
                 Label("无可新增子目标", systemImage: "plus")
                     .labelStyle(.iconOnly)
@@ -146,15 +186,16 @@ struct GoalRowView: View {
             .disabled(true)
         } else {
             Menu {
-                ForEach(childLevels) { childLevel in
+                ForEach(creationOptions) { option in
                     Button {
-                        addChildGoal(level: childLevel)
+                        addChildGoal(option: option)
                     } label: {
-                        Label("新增\(childLevel.displayName)", systemImage: childLevel.accentSymbol)
+                        Label(option.title, systemImage: symbolName(for: option))
                     }
+                    .disabled(!option.isEnabled)
                 }
             } label: {
-                Label("新增子目标", systemImage: "plus")
+                Label(menuLabelTitle, systemImage: "plus")
                     .labelStyle(.iconOnly)
             }
             .menuStyle(.borderlessButton)
@@ -186,8 +227,36 @@ struct GoalRowView: View {
         }
     }
 
-    private func addChildGoal(level: GoalLevel? = nil) {
-        if let child = store.createGoal(planListId: planListId, parent: goal, level: level) {
+    private var menuLabelTitle: String {
+        switch goal.level {
+        case .year:
+            return "添加阶段目标"
+        case .month:
+            return "添加行动"
+        case .week:
+            return "添加子任务"
+        case .day:
+            return "无可新增子目标"
+        }
+    }
+
+    private func symbolName(for option: GoalCreationOption) -> String {
+        guard let level = option.level else { return "clock.badge.questionmark" }
+        if option.actionScope == .later {
+            return "tray"
+        }
+        return level.accentSymbol
+    }
+
+    private func addChildGoal(option: GoalCreationOption) {
+        guard let level = option.level else { return }
+        if let child = store.createGoal(
+            planListId: planListId,
+            parent: goal,
+            level: level,
+            kind: option.kind,
+            actionScope: option.actionScope
+        ) {
             expandedGoalIds.insert(goal.id)
             selectedGoalId = child.id
         }
@@ -203,30 +272,18 @@ struct GoalSiblingRows: View {
     @ObservedObject var store: PlanningStore
     let onDelete: (Goal) -> Void
 
-    private var sections: [GoalPeriodSection] {
-        GoalPeriodSection.makeSections(from: goals)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ForEach(sections) { section in
-                VStack(alignment: .leading, spacing: 1) {
-                    periodHeader(for: section)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(section.goals) { goal in
-                            GoalRowView(
-                                goal: goal,
-                                planListId: planListId,
-                                levelDepth: levelDepth,
-                                selectedGoalId: $selectedGoalId,
-                                expandedGoalIds: $expandedGoalIds,
-                                store: store,
-                                onDelete: onDelete
-                            )
-                        }
-                    }
-                }
+            ForEach(goals) { goal in
+                GoalRowView(
+                    goal: goal,
+                    planListId: planListId,
+                    levelDepth: levelDepth,
+                    selectedGoalId: $selectedGoalId,
+                    expandedGoalIds: $expandedGoalIds,
+                    store: store,
+                    onDelete: onDelete
+                )
             }
         }
         .overlay(alignment: .leading) {
@@ -240,50 +297,147 @@ struct GoalSiblingRows: View {
         }
     }
 
-    private func periodHeader(for section: GoalPeriodSection) -> some View {
-        Label(section.displayName, systemImage: section.systemImage)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
-            .padding(.leading, headerIndent)
-            .padding(.top, levelDepth == 0 ? 1 : 2)
-    }
-
-    private var headerIndent: CGFloat {
-        CGFloat(levelDepth) * 18 + 48
-    }
-
     private var guideIndent: CGFloat {
         CGFloat(levelDepth) * 18 + 12
     }
 }
 
-private struct GoalPeriodSection: Identifiable {
-    let id: String
-    let periodKey: String
-    let displayName: String
-    let systemImage: String
-    var goals: [Goal]
+private struct MonthGoalSections: View {
+    let goals: [Goal]
+    let planListId: UUID
+    let levelDepth: Int
+    @Binding var selectedGoalId: UUID?
+    @Binding var expandedGoalIds: Set<UUID>
+    @ObservedObject var store: PlanningStore
+    let onDelete: (Goal) -> Void
 
-    static func makeSections(from goals: [Goal]) -> [GoalPeriodSection] {
-        var sections: [GoalPeriodSection] = []
-
-        for goal in goals {
-            if let existingIndex = sections.firstIndex(where: { $0.periodKey == goal.periodDisplayKey }) {
-                sections[existingIndex].goals.append(goal)
-                continue
+    private var visibleActionGoals: [Goal] {
+        let directWeekGoals = goals.filter { $0.level == .week }
+        let legacyChildren = directWeekGoals
+            .filter(\.isLegacyWeekContainer)
+            .flatMap { legacyGoal in
+                store.orderedGoals(planListId: planListId, parentId: legacyGoal.id)
             }
 
-            sections.append(
-                GoalPeriodSection(
-                    id: "\(goal.periodDisplayKey)-\(goal.id.uuidString)",
-                    periodKey: goal.periodDisplayKey,
-                    displayName: goal.periodDisplayName,
-                    systemImage: goal.level.accentSymbol,
-                    goals: [goal]
-                )
-            )
+        let directActionGoals = goals.filter {
+            $0.effectiveKind == .action && !$0.isLegacyWeekContainer
         }
 
-        return sections
+        return uniqueGoalsById(directActionGoals + legacyChildren)
+    }
+
+    private var dayGoals: [Goal] {
+        store.sortedGoals(
+            visibleActionGoals.filter { $0.effectiveActionScope == .today && !$0.isCompleted }
+        )
+    }
+
+    private var allocationGoals: [Goal] {
+        store.sortedGoals(
+            visibleActionGoals.filter {
+                ($0.effectiveActionScope == .thisWeek || $0.effectiveActionScope == .later) && !$0.isCompleted
+            }
+        )
+    }
+
+    private var completedGoals: [Goal] {
+        store.sortedCompletedGoals(
+            visibleActionGoals.filter(\.isCompleted)
+        )
+    }
+
+    private func uniqueGoalsById(_ goals: [Goal]) -> [Goal] {
+        var seen = Set<UUID>()
+        return goals.filter { goal in
+            seen.insert(goal.id).inserted
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            MonthGoalSectionBlock(
+                title: "今日必须",
+                goals: dayGoals,
+                emptyMessage: "暂无今日必须",
+                planListId: planListId,
+                levelDepth: levelDepth,
+                selectedGoalId: $selectedGoalId,
+                expandedGoalIds: $expandedGoalIds,
+                store: store,
+                onDelete: onDelete
+            )
+
+            MonthGoalSectionBlock(
+                title: "待分配",
+                goals: allocationGoals,
+                emptyMessage: "暂无待分配",
+                planListId: planListId,
+                levelDepth: levelDepth,
+                selectedGoalId: $selectedGoalId,
+                expandedGoalIds: $expandedGoalIds,
+                store: store,
+                onDelete: onDelete
+            )
+
+            if !completedGoals.isEmpty {
+                MonthGoalSectionBlock(
+                    title: "已完成",
+                    goals: completedGoals,
+                    emptyMessage: "暂无已完成",
+                    planListId: planListId,
+                    levelDepth: levelDepth,
+                    selectedGoalId: $selectedGoalId,
+                    expandedGoalIds: $expandedGoalIds,
+                    store: store,
+                    onDelete: onDelete
+                )
+            }
+        }
+    }
+}
+
+private struct MonthGoalSectionBlock: View {
+    let title: String
+    let goals: [Goal]
+    let emptyMessage: String
+    let planListId: UUID
+    let levelDepth: Int
+    @Binding var selectedGoalId: UUID?
+    @Binding var expandedGoalIds: Set<UUID>
+    @ObservedObject var store: PlanningStore
+    let onDelete: (Goal) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, sectionHeaderIndent)
+
+            if goals.isEmpty {
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, contentIndent)
+            } else {
+                GoalSiblingRows(
+                    goals: goals,
+                    planListId: planListId,
+                    levelDepth: levelDepth + 1,
+                    selectedGoalId: $selectedGoalId,
+                    expandedGoalIds: $expandedGoalIds,
+                    store: store,
+                    onDelete: onDelete
+                )
+            }
+        }
+    }
+
+    private var sectionHeaderIndent: CGFloat {
+        CGFloat(levelDepth) * 18 + 30
+    }
+
+    private var contentIndent: CGFloat {
+        CGFloat(levelDepth) * 18 + 48
     }
 }

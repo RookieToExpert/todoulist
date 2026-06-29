@@ -14,6 +14,15 @@ struct OverviewContentView: View {
         allOverviewGoals.filter { levelFilter.includes($0) }
     }
 
+    private var showsLevelFilter: Bool {
+        switch kind {
+        case .all, .completed:
+            return true
+        case .todayFocus, .thisWeek, .urgent:
+            return false
+        }
+    }
+
     private var stats: OverviewStats {
         OverviewStats(
             incompleteCount: goals.filter { !$0.isCompleted }.count,
@@ -76,13 +85,15 @@ struct OverviewContentView: View {
             HStack(alignment: .center) {
                 OverviewStatsView(stats: stats)
 
-                Picker("目标层级", selection: $levelFilter) {
-                    ForEach(GoalLevelFilter.allCases) { filter in
-                        Text(filter.title).tag(filter)
+                if showsLevelFilter {
+                    Picker("显示范围", selection: $levelFilter) {
+                        ForEach(GoalLevelFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
             }
         }
         .padding(.horizontal, 22)

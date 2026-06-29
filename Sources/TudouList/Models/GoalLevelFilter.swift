@@ -9,9 +9,9 @@ enum GoalLevelFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all:
-            return "全部层级"
+            return "全部"
         case .actionable:
-            return "仅周 / 日"
+            return "仅行动"
         }
     }
 
@@ -20,7 +20,7 @@ enum GoalLevelFilter: String, CaseIterable, Identifiable {
         case .all:
             return true
         case .actionable:
-            return goal.level == .week || goal.level == .day
+            return goal.effectiveKind == .action
         }
     }
 }

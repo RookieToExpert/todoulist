@@ -54,10 +54,29 @@ final class PlanningStore: ObservableObject {
         }
     }
 
+    func childCreationOptions(for parent: Goal) -> [GoalCreationOption] {
+        switch parent.level {
+        case .year:
+            return [GoalCreationOption(title: "添加阶段目标", level: .month, kind: .objective, actionScope: ActionScope.none)]
+        case .month:
+            return [
+                GoalCreationOption(title: "添加今日必须", level: .day, kind: .action, actionScope: .today),
+                GoalCreationOption(title: "添加待分配", level: .week, kind: .action, actionScope: .later)
+            ]
+        case .week:
+            return [GoalCreationOption(title: "添加子任务", level: .day, kind: .action, actionScope: parent.effectiveActionScope)]
+        case .day:
+            return []
+        }
+    }
+
     func createGoal(
         planListId: UUID,
         parent: Goal?,
         level requestedLevel: GoalLevel? = nil,
+        kind requestedKind: GoalKind? = nil,
+        actionScope requestedActionScope: ActionScope? = nil,
+        dueDate: Date? = nil,
         title: String? = nil
     ) -> Goal? {
         let allowedLevels = allowedChildLevels(for: parent)
@@ -70,12 +89,17 @@ final class PlanningStore: ObservableObject {
             $0.planListId == planListId && $0.parentId == parent?.id && $0.level == level
         }
         let nextOrder = (siblings.map(\.sortOrder).max() ?? 0) + 1
-        let fallbackTitle = defaultTitle(for: level, date: now)
+        let fallbackTitle = defaultTitle(for: level, actionScope: requestedActionScope, date: now)
+        let resolvedTitle = cleaned(title ?? fallbackTitle, fallback: fallbackTitle)
+        let legacyValues = Goal.legacyKindAndScope(for: level, title: resolvedTitle)
         let goal = Goal(
             planListId: planListId,
             parentId: parent?.id,
-            title: cleaned(title ?? fallbackTitle, fallback: fallbackTitle),
+            title: resolvedTitle,
             level: level,
+            kind: requestedKind ?? legacyValues.kind,
+            actionScope: requestedActionScope ?? legacyValues.actionScope,
+            dueDate: dueDate,
             createdAt: now,
             updatedAt: now,
             sortOrder: nextOrder
@@ -114,6 +138,28 @@ final class PlanningStore: ObservableObject {
         flush ? saveNow() : scheduleSave()
     }
 
+    func updateDueDate(id: UUID, dueDate: Date?, flush: Bool = false) {
+        guard let index = goals.firstIndex(where: { $0.id == id }) else { return }
+        guard goals[index].dueDate != dueDate else { return }
+        goals[index].dueDate = dueDate
+        goals[index].updatedAt = .now
+        flush ? saveNow() : scheduleSave()
+    }
+
+    func updateActionScope(id: UUID, actionScope: ActionScope, flush: Bool = true) {
+        guard let index = goals.firstIndex(where: { $0.id == id }) else { return }
+        guard goals[index].effectiveKind == .action else { return }
+        guard !goals[index].isLegacyWeekContainer else { return }
+
+        let legacyLevel: GoalLevel = actionScope == .today ? .day : .week
+        guard goals[index].actionScope != actionScope || goals[index].level != legacyLevel else { return }
+
+        goals[index].actionScope = actionScope
+        goals[index].level = legacyLevel
+        goals[index].updatedAt = .now
+        flush ? saveNow() : scheduleSave()
+    }
+
     func setCompleted(_ goal: Goal, isCompleted: Bool) {
         if isCompleted {
             completeGoalAndDescendants(goal.id, completedAt: .now)
@@ -146,6 +192,10 @@ final class PlanningStore: ObservableObject {
         goals.sorted(by: goalDisplaySort)
     }
 
+    func sortedCompletedGoals(_ goals: [Goal]) -> [Goal] {
+        goals.sorted(by: completedOverviewSort)
+    }
+
     // TODO: Add same-level drag reordering by updating sortOrder values from a drop delegate.
     func orderedGoals(planListId: UUID, parentId: UUID?) -> [Goal] {
         sortedGoals(
@@ -160,30 +210,35 @@ final class PlanningStore: ObservableObject {
     func goalsForOverview(_ kind: OverviewKind) -> [Goal] {
         switch kind {
         case .todayFocus:
-            // TODO: Add scheduledDate/dueDate later for a true today view.
-            let urgentGoals = goals
-                .filter { !$0.isCompleted && $0.isUrgent }
-                .sorted(by: overviewRecentSort)
-            let urgentIds = Set(urgentGoals.map(\.id))
-            let recentGoals = goals
-                .filter { !$0.isCompleted && !urgentIds.contains($0.id) }
-                .sorted(by: overviewRecentSort)
-                .prefix(10)
-            return urgentGoals + Array(recentGoals)
-        case .thisWeek:
-            let weekGoalIds = Set(goals.filter { $0.level == .week }.map(\.id))
             return sortedGoals(
-                goals.filter { goal in
-                    goal.level == .week || goal.parentId.map { weekGoalIds.contains($0) } == true
+                goals.filter {
+                    $0.effectiveKind == .action &&
+                    $0.effectiveActionScope == .today &&
+                    !$0.isCompleted
+                }
+            )
+        case .thisWeek:
+            return sortedGoals(
+                goals.filter {
+                    $0.effectiveKind == .action &&
+                    !$0.isCompleted &&
+                    ($0.effectiveActionScope == .thisWeek || $0.effectiveActionScope == .later)
                 }
             )
         case .urgent:
-            return sortedGoals(goals.filter(\.isUrgent))
+            return sortedGoals(
+                goals.filter {
+                    $0.effectiveKind == .action &&
+                    $0.effectiveActionScope == .today &&
+                    $0.isUrgent &&
+                    !$0.isCompleted
+                }
+            )
         case .all:
-            return sortedGoals(goals)
+            return sortedGoals(goals.filter { !$0.isLegacyWeekContainer })
         case .completed:
             return goals
-                .filter(\.isCompleted)
+                .filter { $0.isCompleted && !$0.isLegacyWeekContainer }
                 .sorted(by: completedOverviewSort)
         }
     }
@@ -297,23 +352,18 @@ final class PlanningStore: ObservableObject {
 #endif
     }
 
-    private func defaultTitle(for level: GoalLevel, date: Date) -> String {
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        let year = components.year ?? 0
-        let month = components.month ?? 1
-        let day = components.day ?? 1
-
-        switch level {
-        case .year:
-            return "\(year) 年目标"
-        case .month:
-            return "\(month) 月目标"
-        case .week:
-            let weekOfMonth = ((day - 1) / 7) + 1
-            return "第 \(weekOfMonth) 周目标"
-        case .day:
-            return "\(month) 月 \(day) 日目标"
+    private func defaultTitle(for level: GoalLevel, actionScope: ActionScope?, date: Date) -> String {
+        switch (level, actionScope) {
+        case (.year, _):
+            return "新长期目标"
+        case (.month, _):
+            return "新阶段目标"
+        case (.week, .later):
+            return "新待安排"
+        case (.week, _):
+            return "新本周行动"
+        case (.day, _):
+            return "新今日必须"
         }
     }
 
@@ -372,6 +422,16 @@ final class PlanningStore: ObservableObject {
         return base.appending(path: "TudouList", directoryHint: .isDirectory)
             .appending(path: "store.json")
     }
+}
+
+struct GoalCreationOption: Identifiable, Equatable {
+    let title: String
+    let level: GoalLevel?
+    let kind: GoalKind?
+    let actionScope: ActionScope?
+    var isEnabled: Bool = true
+
+    var id: String { title }
 }
 
 private struct StoreSnapshot: Codable {

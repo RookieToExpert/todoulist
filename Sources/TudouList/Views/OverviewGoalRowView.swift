@@ -6,6 +6,20 @@ struct OverviewGoalRowView: View {
     @ObservedObject var store: PlanningStore
     let onSelect: () -> Void
 
+    private var canMoveToToday: Bool {
+        goal.effectiveKind == .action &&
+        !goal.isCompleted &&
+        !goal.isLegacyWeekContainer &&
+        (goal.effectiveActionScope == .thisWeek || goal.effectiveActionScope == .later)
+    }
+
+    private var canMoveToLater: Bool {
+        goal.effectiveKind == .action &&
+        !goal.isCompleted &&
+        !goal.isLegacyWeekContainer &&
+        goal.effectiveActionScope == .today
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 9) {
             Button {
@@ -26,7 +40,7 @@ struct OverviewGoalRowView: View {
                         .strikethrough(goal.isCompleted, color: .secondary)
                         .lineLimit(1)
 
-                    Text(goal.level.displayName)
+                    Text(goal.semanticDisplayName)
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 5)
@@ -75,6 +89,16 @@ struct OverviewGoalRowView: View {
             }
             Button(goal.isUrgent ? "取消加急" : "设为加急") {
                 store.toggleUrgent(goal)
+            }
+            if canMoveToToday {
+                Button("移动到今日必须") {
+                    store.updateActionScope(id: goal.id, actionScope: .today)
+                }
+            }
+            if canMoveToLater {
+                Button("移回待分配") {
+                    store.updateActionScope(id: goal.id, actionScope: .later)
+                }
             }
         }
     }
