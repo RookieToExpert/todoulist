@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("expandedGoalIdsByPlanList") private var persistedExpandedGoalIds = "{}"
+    @AppStorage("isDetailPaneVisible") private var isDetailPaneVisible = true
     @StateObject private var store = PlanningStore()
     @State private var sidebarSelection: SidebarSelection?
     @State private var selectedGoalId: UUID?
@@ -24,120 +25,156 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            PlanSidebarView(
-                planLists: store.planLists,
-                selection: $sidebarSelection,
-                onAdd: {
-                    newPlanName = ""
-                    showingNewPlan = true
-                },
-                onRename: { plan in
-                    renamingPlan = plan
-                    renamePlanName = plan.name
-                },
-                onDelete: { plan in
-                    deletingPlan = plan
-                }
-            )
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
-        } content: {
-            if let selectedOverview {
-                OverviewContentView(
-                    kind: selectedOverview,
-                    selectedGoalId: $selectedGoalId,
-                    store: store
-                )
-                .navigationSplitViewColumnWidth(min: 460, ideal: 620)
-            } else {
-                GoalBoardView(
-                    plan: selectedPlan,
-                    selectedGoalId: $selectedGoalId,
-                    expandedGoalIds: expandedGoalIdsBinding(for: selectedPlan?.id),
-                    store: store
-                )
-                .navigationSplitViewColumnWidth(min: 460, ideal: 620)
-            }
-        } detail: {
-            GoalDetailView(goalID: selectedGoalId, store: store)
-                .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 460)
-        }
-        .frame(minWidth: 980, minHeight: 620)
-        .onAppear {
-            expandedGoalIdsByPlanList = decodeExpandedGoalIds(from: persistedExpandedGoalIds)
-            sidebarSelection = sidebarSelection ?? .overview(.todayFocus)
-        }
-        .onChange(of: store.planLists.map(\.id)) { _, ids in
-            if sidebarSelection == nil {
-                sidebarSelection = .overview(.todayFocus)
-            } else if case let .planList(planId) = sidebarSelection, !ids.contains(planId) {
-                sidebarSelection = ids.first.map(SidebarSelection.planList) ?? .overview(.todayFocus)
-                selectedGoalId = nil
-            }
-        }
-        .onChange(of: sidebarSelection) {
-            store.flushSave()
-            selectedGoalId = nil
-        }
-        .onChange(of: selectedGoalId) {
-            store.flushSave()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active {
-                store.flushSave()
-            }
-        }
-        .alert("新建计划表", isPresented: $showingNewPlan) {
-            TextField("计划表名称", text: $newPlanName)
-            Button("创建") {
-                let plan = store.createPlanList(name: newPlanName)
-                sidebarSelection = .planList(plan.id)
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("例如：学习计划、工作冲刺、长期目标。")
-        }
-        .alert("重命名计划表", isPresented: Binding(
-            get: { renamingPlan != nil },
-            set: { if !$0 { renamingPlan = nil } }
-        )) {
-            TextField("计划表名称", text: $renamePlanName)
-            Button("保存") {
-                if let renamingPlan {
-                    store.updatePlanList(renamingPlan, name: renamePlanName)
-                }
-                renamingPlan = nil
-            }
-            Button("取消", role: .cancel) {
-                renamingPlan = nil
-            }
-        }
-        .confirmationDialog(
-            "删除计划表？",
-            isPresented: Binding(
-                get: { deletingPlan != nil },
-                set: { if !$0 { deletingPlan = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("删除", role: .destructive) {
-                if let deletingPlan {
-                    store.deletePlanList(deletingPlan)
-                    expandedGoalIdsByPlanList[deletingPlan.id] = nil
-                    persistExpandedGoalIds()
-                    if sidebarSelection == .planList(deletingPlan.id) {
-                        sidebarSelection = store.planLists.first.map { .planList($0.id) } ?? .overview(.todayFocus)
+        mainSplitView
+            .frame(minWidth: 980, minHeight: 620)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isDetailPaneVisible.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.right")
                     }
+                    .help(isDetailPaneVisible ? "隐藏详情面板" : "显示详情面板")
+                }
+            }
+            .onAppear {
+                expandedGoalIdsByPlanList = decodeExpandedGoalIds(from: persistedExpandedGoalIds)
+                sidebarSelection = sidebarSelection ?? .overview(.todayFocus)
+            }
+            .onChange(of: store.planLists.map(\.id)) { _, ids in
+                if sidebarSelection == nil {
+                    sidebarSelection = .overview(.todayFocus)
+                } else if case let .planList(planId) = sidebarSelection, !ids.contains(planId) {
+                    sidebarSelection = ids.first.map(SidebarSelection.planList) ?? .overview(.todayFocus)
                     selectedGoalId = nil
                 }
-                deletingPlan = nil
             }
-            Button("取消", role: .cancel) {
-                deletingPlan = nil
+            .onChange(of: sidebarSelection) {
+                store.flushSave()
+                selectedGoalId = nil
             }
-        } message: {
-            Text("该计划表中的所有目标都会被删除。")
+            .onChange(of: selectedGoalId) {
+                store.flushSave()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active {
+                    store.flushSave()
+                }
+            }
+            .alert("新建计划表", isPresented: $showingNewPlan) {
+                TextField("计划表名称", text: $newPlanName)
+                Button("创建") {
+                    let plan = store.createPlanList(name: newPlanName)
+                    sidebarSelection = .planList(plan.id)
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("例如：学习计划、工作冲刺、长期目标。")
+            }
+            .alert("重命名计划表", isPresented: isRenamingPlanPresented) {
+                TextField("计划表名称", text: $renamePlanName)
+                Button("保存") {
+                    if let renamingPlan {
+                        store.updatePlanList(renamingPlan, name: renamePlanName)
+                    }
+                    renamingPlan = nil
+                }
+                Button("取消", role: .cancel) {
+                    renamingPlan = nil
+                }
+            }
+            .confirmationDialog(
+                "删除计划表？",
+                isPresented: isDeletingPlanPresented,
+                titleVisibility: .visible
+            ) {
+                Button("删除", role: .destructive) {
+                    if let deletingPlan {
+                        store.deletePlanList(deletingPlan)
+                        let deletingPlanId = deletingPlan.id
+                        expandedGoalIdsByPlanList[deletingPlanId] = nil
+                        persistExpandedGoalIds()
+
+                        switch sidebarSelection {
+                        case let .planList(planId) where planId == deletingPlanId:
+                            sidebarSelection = store.planLists.first.map { .planList($0.id) } ?? .overview(.todayFocus)
+                        default:
+                            break
+                        }
+                        selectedGoalId = nil
+                    }
+                    deletingPlan = nil
+                }
+                Button("取消", role: .cancel) {
+                    deletingPlan = nil
+                }
+            } message: {
+                Text("该计划表中的所有目标都会被删除。")
+            }
+    }
+
+    private var mainSplitView: some View {
+        NavigationSplitView {
+            sidebarView
+        } detail: {
+            primaryContentView
+                .navigationSplitViewColumnWidth(min: 460, ideal: 980)
+                .inspector(isPresented: $isDetailPaneVisible) {
+                GoalDetailView(goalID: selectedGoalId, store: store)
+                    .inspectorColumnWidth(min: 300, ideal: 360, max: 460)
+            }
         }
+    }
+
+    private var sidebarView: some View {
+        PlanSidebarView(
+            planLists: store.planLists,
+            selection: $sidebarSelection,
+            onAdd: {
+                newPlanName = ""
+                showingNewPlan = true
+            },
+            onRename: { plan in
+                renamingPlan = plan
+                renamePlanName = plan.name
+            },
+            onDelete: { plan in
+                deletingPlan = plan
+            }
+        )
+        .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 320)
+    }
+
+    @ViewBuilder
+    private var primaryContentView: some View {
+        if let selectedOverview {
+            OverviewContentView(
+                kind: selectedOverview,
+                selectedGoalId: $selectedGoalId,
+                store: store
+            )
+        } else {
+            GoalBoardView(
+                plan: selectedPlan,
+                selectedGoalId: $selectedGoalId,
+                expandedGoalIds: expandedGoalIdsBinding(for: selectedPlan?.id),
+                store: store
+            )
+        }
+    }
+
+    private var isRenamingPlanPresented: Binding<Bool> {
+        Binding(
+            get: { renamingPlan != nil },
+            set: { if !$0 { renamingPlan = nil } }
+        )
+    }
+
+    private var isDeletingPlanPresented: Binding<Bool> {
+        Binding(
+            get: { deletingPlan != nil },
+            set: { if !$0 { deletingPlan = nil } }
+        )
     }
     private func expandedGoalIdsBinding(for planId: UUID?) -> Binding<Set<UUID>> {
         Binding(
@@ -174,5 +211,4 @@ struct ContentView: View {
             result[planId] = Set(goalIds)
         }
     }
-
 }

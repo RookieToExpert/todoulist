@@ -23,6 +23,7 @@ struct GoalDetailView: View {
 private struct GoalEditor: View {
     let goalID: UUID
     @ObservedObject var store: PlanningStore
+    @AppStorage("goalDetailMetadataExpanded") private var isMetadataExpanded = true
 
     private var goal: Goal? {
         store.goal(id: goalID)
@@ -90,8 +91,23 @@ private struct GoalEditor: View {
                 }
             }
 
-            Section("元信息") {
-                if let goal {
+            Section {
+                Button {
+                    isMetadataExpanded.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: isMetadataExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("元信息")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isMetadataExpanded, let goal {
                     LabeledContent("创建时间") {
                         Text(goal.createdAt.formatted(date: .abbreviated, time: .shortened))
                             .foregroundStyle(.secondary)
