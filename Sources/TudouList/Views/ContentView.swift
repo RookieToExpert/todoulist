@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var expandedGoalIdsByPlanList: [UUID: Set<UUID>] = [:]
     @State private var windowWidth: CGFloat = 0
     @State private var hostingWindow: NSWindow?
+    @State private var inspectorLayoutRevision = 0
     @State private var newPlanName = ""
     @State private var showingNewPlan = false
     @State private var renamingPlan: PlanList?
@@ -23,11 +24,12 @@ struct ContentView: View {
         static let sidebarMaxWidth: CGFloat = 320
         static let primaryMinWidth: CGFloat = 620
         static let primaryIdealWidth: CGFloat = 980
-        static let inspectorMinWidth: CGFloat = 300
-        static let inspectorIdealWidth: CGFloat = 360
+        static let inspectorMinWidth: CGFloat = 420
+        static let inspectorIdealWidth: CGFloat = 420
         static let inspectorMaxWidth: CGFloat = 460
+        static let splitDividerAllowance: CGFloat = 24
         static let twoColumnMinWidth = sidebarMinWidth + primaryMinWidth
-        static let threeColumnMinWidth = twoColumnMinWidth + inspectorMinWidth
+        static let threeColumnMinWidth = twoColumnMinWidth + inspectorMinWidth + splitDividerAllowance
     }
 
     private var selectedPlan: PlanList? {
@@ -143,11 +145,12 @@ struct ContentView: View {
             sidebarView
         } detail: {
             primaryContentView
+                .id(inspectorLayoutRevision)
                 .navigationSplitViewColumnWidth(
                     min: LayoutMetrics.primaryMinWidth,
                     ideal: LayoutMetrics.primaryIdealWidth
                 )
-                .inspector(isPresented: $isDetailPaneVisible) {
+                .inspector(isPresented: inspectorVisibilityBinding) {
                     GoalDetailView(goalID: selectedGoalId, store: store)
                         .inspectorColumnWidth(
                             min: LayoutMetrics.inspectorMinWidth,
@@ -213,6 +216,20 @@ struct ContentView: View {
         )
     }
 
+    private var inspectorVisibilityBinding: Binding<Bool> {
+        Binding(
+            get: { isDetailPaneVisible },
+            set: { isVisible in
+                isDetailPaneVisible = isVisible
+                if !isVisible {
+                    DispatchQueue.main.async {
+                        inspectorLayoutRevision += 1
+                    }
+                }
+            }
+        )
+    }
+
     private func updateWindowWidth(_ width: CGFloat) {
         windowWidth = width
         if width < LayoutMetrics.threeColumnMinWidth, isDetailPaneVisible {
@@ -237,11 +254,13 @@ struct ContentView: View {
     private func expandWindowForDetailPane() {
         guard let hostingWindow else { return }
 
-        let widthDeficit = LayoutMetrics.threeColumnMinWidth - windowWidth
-        guard widthDeficit > 0 else { return }
+        let contentToFrameWidth = hostingWindow.frame.width - windowWidth
+        let targetFrameWidth = LayoutMetrics.threeColumnMinWidth + max(contentToFrameWidth, 0)
+        guard hostingWindow.frame.width < targetFrameWidth else { return }
 
         var frame = hostingWindow.frame
-        frame.size.width += widthDeficit
+        let widthDeficit = targetFrameWidth - frame.width
+        frame.size.width = targetFrameWidth
         frame.origin.x -= widthDeficit
         hostingWindow.setFrame(frame, display: true, animate: true)
     }
